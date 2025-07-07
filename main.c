@@ -378,7 +378,7 @@ unsigned int convertStringToSeed(char* input){
   unsigned int result = 0;
 
   for(int i = 0; input[i] != '\0' ; i++){
-    result = result * 10 + abs((input[i] - 48));
+    result = result * 10 + (input[i] - 48);
   }
 
   return result;
