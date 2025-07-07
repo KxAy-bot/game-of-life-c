@@ -344,7 +344,7 @@ void showSeedForm() {
   moveCursor(top + 1, left);
   printf("│           🌱 Inserisci un seed manuale         │");
   moveCursor(top + 2, left);
-  printf("│      oppure premi INVIO per usarne uno random │");
+  printf("│      oppure premi INVIO per usarne uno random  │");
   moveCursor(top + 3, left);
   printf("╰────────────────────────────────────────────────╯");
   moveCursor(top + 5, left);
