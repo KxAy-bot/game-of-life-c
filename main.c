@@ -30,6 +30,7 @@ unsigned int useconds;
 unsigned short fastMode = 0;
 unsigned int generationCounter = 0;
 unsigned int populationCounter = 0;
+unsigned int memoryFreed = 0;
 unsigned int seed;
 unsigned short status = 0;
 unsigned short clockStatus = 0;
@@ -194,10 +195,13 @@ int getTerminalSize(int *rows, int *cols) {
 }
 
 void cleanMemory() {
+  if(memoryFreed) return;
   if (buffer != NULL)
     free(buffer);
   if (tempBuffer != NULL)
     free(tempBuffer);
+
+  memoryFreed = 1;
   printf("\nPulendo le stronzate che mi hai fatto fare....\n");
   // exit(0);
 }
@@ -273,6 +277,7 @@ void runSimulation(){
   seed = getSeedFromUser();
   useconds = DEFAULT_SPEED;
   initgrid();
+  memoryFreed = 0;
   clearScreen();
 
   srand(seed);
