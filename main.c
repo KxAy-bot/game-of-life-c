@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <fcntl.h>
+#include <string.h>
 #include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@ unsigned short status = 0;
 unsigned short clockStatus = 0;
 
 void handleExit(int sig);
+unsigned int convertStringToSeed(char* input);
 void showSeedForm();
 void checkPopulation();
 void handleKeyInput();
@@ -57,7 +59,6 @@ void writeSeedToFile();
 unsigned int getSeedFromUser();
 
 int main() {
-  seed = getSeedFromUser();
   runSimulation();
   return 0;
 }
@@ -100,7 +101,7 @@ void renderGrid() {
     }
     putc('\n', stdout);
   }
-  printf("Seed: %d\n", seed);
+  printf("Seed: %u\n", seed);
   printf("Generazione %d\n", generationCounter);
   printf("Popolazione %d\n", populationCounter);
 
@@ -198,7 +199,7 @@ void cleanMemory() {
   if (tempBuffer != NULL)
     free(tempBuffer);
   printf("\nPulendo le stronzate che mi hai fatto fare....\n");
-  exit(0);
+  // exit(0);
 }
 
 void setNoEchoInput(){
@@ -229,12 +230,15 @@ void restoreTerminal(){
   tcgetattr(STDIN_FILENO, &ttystate); // impostazioni
   ttystate.c_lflag |= ICANON | ECHO; // disattivo echo da terminale
   tcsetattr(STDIN_FILENO, TCSANOW, &ttystate); // applico impostazioni
+  
+  fcntl(STDIN_FILENO, F_SETFL, 0);
 }
 
 void handleExit(int sig){
   writeSeedToFile();
   restoreTerminal();
   cleanMemory();
+  exit(0);
 }
 
 void handleKeyInput(){
@@ -266,6 +270,7 @@ void checkPopulation(){
 }
 
 void runSimulation(){
+  seed = getSeedFromUser();
   useconds = DEFAULT_SPEED;
   initgrid();
   clearScreen();
@@ -310,39 +315,42 @@ void writeSeedToFile(){
   const char *mode = (count >= 100) ? "w" : "a";
   FILE* output = fopen("seeds.txt", mode);
 
-  fprintf(output, "%d\n", seed);
+  fprintf(output, "%u\n", seed);
 
   fclose(output);
 }
 
 void showSeedForm() {
-    clearScreen();
+  clearScreen();
 
-    int termRows = 24, termCols = 80;
-    struct winsize w;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
-        termRows = w.ws_row;
-        termCols = w.ws_col;
-    }
+  int termRows = 24, termCols = 80; // default se ioctl fallisce
 
-    int width = 50;
-    int height = 7;
-    int top = (termRows - height) / 2;
-    int left = (termCols - width) / 2;
+  #if defined(__linux__) || defined(__APPLE__)
+  struct winsize w;
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
+      termRows = w.ws_row;
+      termCols = w.ws_col;
+  }
+#endif
 
-    // disegna riquadro
-    moveCursor(top, left);
-    printf("╭────────────────────────────────────────────────╮");
-    moveCursor(top + 1, left);
-    printf("│           🌱 Inserisci un seed manuale         │");
-    moveCursor(top + 2, left);
-    printf("│      oppure premi INVIO per usarne uno random │");
-    moveCursor(top + 3, left);
-    printf("╰────────────────────────────────────────────────╯");
-    moveCursor(top + 5, left);
-    printf("  Seed: ");
+  int width = 50;
+  int height = 7;
+  int top = (termRows - height) / 2;
+  int left = (termCols - width) / 2;
 
-    fflush(stdout);
+  // disegna riquadro
+  moveCursor(top, left);
+  printf("╭────────────────────────────────────────────────╮");
+  moveCursor(top + 1, left);
+  printf("│           🌱 Inserisci un seed manuale         │");
+  moveCursor(top + 2, left);
+  printf("│      oppure premi INVIO per usarne uno random │");
+  moveCursor(top + 3, left);
+  printf("╰────────────────────────────────────────────────╯");
+  moveCursor(top + 5, left);
+  printf("  Seed: ");
+
+  fflush(stdout);
 }
 
 void moveCursor(int row, int col){
@@ -354,8 +362,19 @@ unsigned int getSeedFromUser(){
   char input[32];
   if(fgets(input, sizeof(input), stdin)){
     if(input[0] != '\n'){
-      return (unsigned int)atoi(input);
+      input[strcspn(input, "\n")] = '\0';
+      return convertStringToSeed(input);
     }
   }
-  return (unsigned int)time(NULL);
+  return (unsigned int)(time(NULL)+time(NULL));
+}
+
+unsigned int convertStringToSeed(char* input){
+  unsigned int result = 0;
+
+  for(int i = 0; input[i] != '\0' ; i++){
+    result = result * 10 + abs((input[i] - 48));
+  }
+
+  return result;
 }
