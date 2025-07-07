@@ -3,6 +3,7 @@
 #include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <threads.h>
 #include <time.h>
 
 #ifdef _WIN32
@@ -28,13 +29,16 @@ unsigned int useconds;
 unsigned short fastMode = 0;
 unsigned int generationCounter = 0;
 unsigned int populationCounter = 0;
+unsigned int seed;
 unsigned short status = 0;
 unsigned short clockStatus = 0;
 
 void handleExit(int sig);
+void showSeedForm();
 void checkPopulation();
 void handleKeyInput();
 void restoreTerminal();
+void moveCursor(int row, int col);
 int getTerminalSize(int *rows, int *cols);
 void setNoEchoInput();
 char getKeyPress();
@@ -47,29 +51,14 @@ void clearScreen();
 void updateState();
 void cleanMemory();
 void setSleep(int useconds);
+void runSimulation();
+void restartSimulation();
+void writeSeedToFile();
+unsigned int getSeedFromUser();
 
 int main() {
-  useconds = DEFAULT_SPEED;
-  initgrid();
-  clearScreen();
-  srand(time(NULL));
-
-  for (int i = 0; i < 20; i++) {
-    int x = (COLS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + COLS) % COLS;
-    int y = (ROWS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + ROWS) % ROWS;
-    putCell(x, y, ALIVE, buffer);
-  }
-
-  signal(SIGINT, handleExit);
-  setNoEchoInput();
-
-  while (1) {
-    renderGrid();
-    handleKeyInput();
-    updateState();
-    setSleep(useconds);
-  }
-
+  seed = getSeedFromUser();
+  runSimulation();
   return 0;
 }
 
@@ -111,6 +100,7 @@ void renderGrid() {
     }
     putc('\n', stdout);
   }
+  printf("Seed: %d\n", seed);
   printf("Generazione %d\n", generationCounter);
   printf("Popolazione %d\n", populationCounter);
 
@@ -242,13 +232,19 @@ void restoreTerminal(){
 }
 
 void handleExit(int sig){
+  writeSeedToFile();
   restoreTerminal();
   cleanMemory();
 }
 
 void handleKeyInput(){
-  if(getKeyPress() == ' '){
-    fastMode = !fastMode;
+  switch(getKeyPress()){
+    case ' ':
+      fastMode = !fastMode;
+      break;
+    case 'r':
+      restartSimulation();
+      break;
   }
 
   useconds = fastMode ? (DEFAULT_SPEED / 3) : DEFAULT_SPEED;
@@ -267,4 +263,99 @@ void checkPopulation(){
   else status = 0;
 
   populationCounter = counter;
+}
+
+void runSimulation(){
+  useconds = DEFAULT_SPEED;
+  initgrid();
+  clearScreen();
+
+  srand(seed);
+
+  for (int i = 0; i < 20; i++) {
+    int x = (COLS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + COLS) % COLS;
+    int y = (ROWS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + ROWS) % ROWS;
+    putCell(x, y, ALIVE, buffer);
+  }
+
+  signal(SIGINT, handleExit);
+  setNoEchoInput();
+
+  while (1) {
+    renderGrid();
+    handleKeyInput();
+    updateState();
+    setSleep(useconds);
+  }
+}
+
+void restartSimulation(){
+  cleanMemory();
+  restoreTerminal();
+  runSimulation();
+}
+
+void writeSeedToFile(){
+  unsigned int count = 0;
+  FILE* file = fopen("seeds.txt", "r");
+
+  if(file != NULL){
+    char line[64];
+    while(fgets(line, sizeof(line), file)){
+      count++;
+    }
+    fclose(file);
+  }
+
+  const char *mode = (count >= 100) ? "w" : "a";
+  FILE* output = fopen("seeds.txt", mode);
+
+  fprintf(output, "%d\n", seed);
+
+  fclose(output);
+}
+
+void showSeedForm() {
+    clearScreen();
+
+    int termRows = 24, termCols = 80;
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
+        termRows = w.ws_row;
+        termCols = w.ws_col;
+    }
+
+    int width = 50;
+    int height = 7;
+    int top = (termRows - height) / 2;
+    int left = (termCols - width) / 2;
+
+    // disegna riquadro
+    moveCursor(top, left);
+    printf("╭────────────────────────────────────────────────╮");
+    moveCursor(top + 1, left);
+    printf("│           🌱 Inserisci un seed manuale         │");
+    moveCursor(top + 2, left);
+    printf("│      oppure premi INVIO per usarne uno random │");
+    moveCursor(top + 3, left);
+    printf("╰────────────────────────────────────────────────╯");
+    moveCursor(top + 5, left);
+    printf("  Seed: ");
+
+    fflush(stdout);
+}
+
+void moveCursor(int row, int col){
+  printf("\033[%d;%dH", row, col);
+}
+
+unsigned int getSeedFromUser(){
+  showSeedForm();
+  char input[32];
+  if(fgets(input, sizeof(input), stdin)){
+    if(input[0] != '\n'){
+      return (unsigned int)atoi(input);
+    }
+  }
+  return (unsigned int)time(NULL);
 }
