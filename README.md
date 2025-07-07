@@ -17,5 +17,5 @@ make
 
 ## Comandi
 
-Puoi premere `spazio` per fare fast-forward
-Per far ripartire il gioco premi il tasto `r`
+Premi `SPACE` per abilitare il fast-forward.<br>
+Premi `R` per restartare il gioco.
