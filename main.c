@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <poll.h>
 #include <fcntl.h>
 #include <string.h>
 #include <termios.h>
@@ -23,7 +24,15 @@
 int ROWS, COLS;
 
 typedef enum State { DEAD, ALIVE } State;
+typedef enum Mode {SIMULATION, EDITOR} Mode;
 
+typedef struct MouseEvent{
+  int x;
+  int y;
+  int button;
+} MouseEvent;
+
+// globali
 char *buffer;
 char *tempBuffer;
 unsigned int useconds;
@@ -34,6 +43,10 @@ unsigned int memoryFreed = 0;
 unsigned int seed;
 unsigned short status = 0;
 unsigned short clockStatus = 0;
+unsigned short skipGeneration = 0;
+
+MouseEvent event;
+Mode mode;
 
 void handleExit(int sig);
 unsigned int convertStringToSeed(char* input);
@@ -43,7 +56,7 @@ void handleKeyInput();
 void restoreTerminal();
 void moveCursor(int row, int col);
 int getTerminalSize(int *rows, int *cols);
-void setNoEchoInput();
+void rawTerminalMode();
 char getKeyPress();
 void putCell(int x, int y, State state, char *buffer);
 int checkNeighbours(int x, int y);
@@ -57,6 +70,15 @@ void setSleep(int useconds);
 void runSimulation();
 void restartSimulation();
 void writeSeedToFile();
+void enableMouseTracking();
+void disableMouseTracking();
+void getMouseInput(MouseEvent* event);
+void handleMouseInput();
+void renderEditorGrid();
+void generateBySeed();
+void enterEditorMode();
+void clearBoard();
+void exitEditorMode();
 unsigned int getSeedFromUser();
 
 int main() {
@@ -206,10 +228,11 @@ void cleanMemory() {
   // exit(0);
 }
 
-void setNoEchoInput(){
+void rawTerminalMode(){
   struct termios ttystate;
   tcgetattr(STDIN_FILENO, &ttystate);
   ttystate.c_lflag &= ~(ICANON | ECHO);
+  // ttystate.c_lflag &= ~(IXON | ICRNL);
   tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
 
   fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
@@ -233,6 +256,7 @@ void restoreTerminal(){
   struct termios ttystate;
   tcgetattr(STDIN_FILENO, &ttystate); // impostazioni
   ttystate.c_lflag |= ICANON | ECHO; // disattivo echo da terminale
+  // ttystate.c_lflag |= IXON | ICRNL;
   tcsetattr(STDIN_FILENO, TCSANOW, &ttystate); // applico impostazioni
   
   fcntl(STDIN_FILENO, F_SETFL, 0);
@@ -247,12 +271,23 @@ void handleExit(int sig){
 
 void handleKeyInput(){
   switch(getKeyPress()){
-    case ' ':
-      fastMode = !fastMode;
-      break;
-    case 'r':
-      restartSimulation();
-      break;
+      case ' ':
+        fastMode = !fastMode;
+        break;
+      case 'r':
+        restartSimulation();
+        break;
+      case 'e':
+        enterEditorMode();
+        break;
+      case 'c':
+        if(mode == EDITOR)
+          clearBoard();
+        break;
+      case 'q':
+        if(mode == EDITOR)
+          exitEditorMode();
+        break;
   }
 
   useconds = fastMode ? (DEFAULT_SPEED / 3) : DEFAULT_SPEED;
@@ -274,22 +309,17 @@ void checkPopulation(){
 }
 
 void runSimulation(){
-  seed = getSeedFromUser();
+  if(!skipGeneration){seed = getSeedFromUser(); initgrid();}
   useconds = DEFAULT_SPEED;
-  initgrid();
   memoryFreed = 0;
   clearScreen();
 
-  srand(seed);
-
-  for (int i = 0; i < 20; i++) {
-    int x = (COLS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + COLS) % COLS;
-    int y = (ROWS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + ROWS) % ROWS;
-    putCell(x, y, ALIVE, buffer);
-  }
+  if(!skipGeneration) generateBySeed();
+  
+  skipGeneration = 0;
 
   signal(SIGINT, handleExit);
-  setNoEchoInput();
+  rawTerminalMode();
 
   while (1) {
     renderGrid();
@@ -382,4 +412,123 @@ unsigned int convertStringToSeed(char* input){
   }
 
   return result;
+}
+
+void enableMouseTracking(){
+  printf("\033[?1000h");
+  printf("\033[?1002h");
+  printf("\033[?1006h");
+  fflush(stdout);
+}
+
+void disableMouseTracking(){
+  printf("\033[?1000l");
+  printf("\033[?1002l");
+  printf("\033[?1006l");
+  fflush(stdout);
+}
+
+void getMouseInput(MouseEvent *event) {
+  char buf[32];
+  int i = 0;
+  
+  // Primo byte già letto: ESC
+  buf[i++] = '\033';
+
+  // Leggi i prossimi byte della sequenza mouse, bloccante ma a timeout breve
+  struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+  while (i < sizeof(buf) - 1) {
+    if (poll(&pfd, 1, 10) <= 0) break;  // timeout breve per evitare blocchi infiniti
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+    if (buf[i] == 'M' || buf[i] == 'm') break;  // fine sequenza
+    i++;
+  }
+
+  buf[i+1] = '\0';
+
+  // Cerca la sequenza ESC [ < b ; x ; y M
+  int b, x, y;
+  if (sscanf(buf, "\033[<%d;%d;%dM", &b, &x, &y) == 3){
+    event->x = x - 1;
+    event->y = y - 1;
+    event->button = b;
+  } else {
+    event->x = event->y = event->button = -1;
+  }
+}
+
+void generateBySeed(){
+  srand(seed);
+
+  for (int i = 0; i < 20; i++) {
+    int x = (COLS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + COLS) % COLS;
+    int y = (ROWS / 2 + rand() % (2 * RADIUS + 1) - RADIUS + ROWS) % ROWS;
+    putCell(x, y, ALIVE, buffer);
+  }
+}
+
+void enterEditorMode(){
+  mode = EDITOR;
+  enableMouseTracking();
+  while(mode == EDITOR){
+    renderEditorGrid();
+    handleKeyInput();
+    handleMouseInput();
+
+    setSleep(20000);
+  }
+}
+
+void renderEditorGrid(){
+  moveCursor(0, 0);
+  for (int i = 0; i < ROWS; i++) {
+    for (int j = 0; j < COLS; j++) {
+      if (getCell(j, i) == DEAD)
+        putc('.', stdout);
+      else
+        printf("\033[32;7;5m█\033[0m");
+    }
+    putc('\n', stdout);
+  }
+
+  printf("\nEDITOR MODE\n");
+  printf("PRESS Q TO SAVE AND RUN");
+  printf("PRESS C TO CLEAR THE BOARD");
+  fflush(stdout);
+}
+
+void clearBoard(){
+  for(int i = 0; i < ROWS; i++){
+    for(int j = 0; j < COLS; j++){
+      putCell(j, i, DEAD, buffer);
+    }
+  }
+}
+
+void exitEditorMode(){
+  mode = SIMULATION;
+  disableMouseTracking();
+  skipGeneration = 1;
+  runSimulation();
+}
+
+void handleMouseInput() {
+  struct pollfd pfd = { .fd = STDIN_FILENO, .events = POLLIN };
+
+  if (poll(&pfd, 1, 5) <= 0) return;
+
+  char c;
+  if (read(STDIN_FILENO, &c, 1) != 1) return;
+  if (c != '\033') return;
+
+  MouseEvent event;
+  getMouseInput(&event);
+
+  if ((event.button == 0 || event.button == 32 || event.button == 2) &&
+      event.x >= 0 && event.x < COLS &&
+      event.y >= 0 && event.y < ROWS) {
+
+    State current = getCell(event.x, event.y+3);
+    putCell(event.x, event.y+3, (current == ALIVE ? DEAD : ALIVE), buffer);
+  }
 }
