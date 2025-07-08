@@ -287,6 +287,7 @@ void handleKeyInput(){
       case 'q':
         if(mode == EDITOR)
           exitEditorMode();
+        else raise(SIGINT);
         break;
   }
 
