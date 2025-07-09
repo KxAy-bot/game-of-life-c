@@ -487,7 +487,7 @@ void renderEditorGrid(){
       if (getCell(j, i) == DEAD)
         putc('.', stdout);
       else
-        printf("\033[32;7;5m█\033[0m");
+        printf("\033[37m█\033[0m");
     }
     putc('\n', stdout);
   }
