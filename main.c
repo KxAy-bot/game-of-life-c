@@ -1,5 +1,4 @@
 #include <signal.h>
-#include <poll.h>
 #include <fcntl.h>
 #include <string.h>
 #include <termios.h>
@@ -14,6 +13,7 @@
 #endif /* ifdef _WIN32 */
 
 #if defined(__linux__) || defined(__APPLE__)
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #endif
@@ -278,7 +278,9 @@ void handleKeyInput(){
         restartSimulation();
         break;
       case 'e':
+        #if defined(__linux__) || defined(__APPLE__)
         enterEditorMode();
+        #endif
         break;
       case 'c':
         if(mode == EDITOR)
