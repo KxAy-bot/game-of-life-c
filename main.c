@@ -4,7 +4,6 @@
 #include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <threads.h>
 #include <time.h>
 
 #ifdef _WIN32
